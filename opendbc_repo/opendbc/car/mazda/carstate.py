@@ -86,7 +86,8 @@ class CarState(CarStateBase):
     ret.steeringAngleDeg = cp.vl["STEER"]["STEER_ANGLE"]
 
     ret.steeringTorqueEps = cp.vl["STEER_TORQUE"]["STEER_TORQUE_MOTOR"]
-    ret.steeringRateDeg = cp.vl["STEER_RATE"]["STEER_ANGLE_RATE"]
+    ret.steeringRateDeg = (ret.steeringAngleDeg - self._prev_steering_angle) / DT_CTRL
+    self._prev_steering_angle = ret.steeringAngleDeg  # 2015 gen3: no STEER_RATE(0x241), derive rate
 
     # TODO: this should be from 0 - 1.
     ret.brakePressed = cp.vl["PEDALS"]["BRAKE_ON"] == 1
@@ -100,7 +101,7 @@ class CarState(CarStateBase):
     ret.gasPressed = cp.vl["ENGINE_DATA"]["PEDAL_GAS"] > 0
 
     # Either due to low speed or hands off
-    lkas_blocked = cp.vl["STEER_RATE"]["LKAS_BLOCK"] == 1
+    lkas_blocked = False  # 2015 gen3: no STEER_RATE/LKAS_BLOCK msg
 
     if self.CP.minSteerSpeed > 0:
       # LKAS is enabled at 52kph going up and disabled at 45kph going down
@@ -150,11 +151,17 @@ class CarState(CarStateBase):
     self.crz_btns_counter = cp.vl["CRZ_BTNS"]["CTR"]
 
     # camera signals
+    # CAM_LANEINFO (0x440) is broadcast even by cameras with no active-LKAS command (e.g. 2015
+    # gen3), so read the dict unconditionally — carcontroller forwards it back to the car to keep
+    # the dash LDW/auto-headlight HUD alive (the panda relay drops the camera's own copy).
+    self.cam_laneinfo = cp_cam.vl["CAM_LANEINFO"]
+    # The LKAS-setting/validity + CAM_LKAS (0x243) checks below only apply with a real FSC. On
+    # NO_FSC cars LANE_LINES reads 0 (would wrongly raise "invalid lkas setting" and block engage)
+    # and CAM_LKAS is absent (touching it marks it timeout-invalid -> "unknown vehicle variant").
     if not self.CP.flags & MazdaSafetyFlags.NO_FSC:
       ret.invalidLkasSetting = cp_cam.vl["CAM_LANEINFO"]["LANE_LINES"] == 0
       self.lkas_disabled = cp_cam.vl["CAM_LANEINFO"]["LANE_LINES"] == 0 if not self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else False
       self.cam_lkas = cp_cam.vl["CAM_LKAS"]
-      self.cam_laneinfo = cp_cam.vl["CAM_LANEINFO"]
       ret.steerFaultPermanent = cp_cam.vl["CAM_LKAS"]["ERR_BIT_1"] == 1 if not self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else False
     self.cp_cam = cp_cam
     self.cp = cp

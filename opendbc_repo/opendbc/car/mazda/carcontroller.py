@@ -38,9 +38,12 @@ class CarController(CarControllerBase):
                                                       CS.out.steeringTorque, self.ccp)
       if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR:
         if CS.ti_lkas_allowed:
-          ti_new_torque = int(round(CC.actuators.torque * self.ccp.STEER_MAX))
-          ti_apply_torque = apply_driver_steer_torque_limits(ti_new_torque, self.apply_torque_last,
-                                                    CS.out.steeringTorque, self.ccp)
+          # TI has its own (lower) torque + rate limits. Using STEER_MAX/ccp here over-drove it
+          # to ~800 on curves and tripped TI VIOL 17 -> momentary cut-out. Scale to TI_STEER_MAX
+          # and rate/driver-limit with TI_LIMITS, tracking the TI's own torque history.
+          ti_new_torque = int(round(CC.actuators.torque * self.ccp.TI_STEER_MAX))
+          ti_apply_torque = apply_driver_steer_torque_limits(ti_new_torque, self.ti_apply_torque_last,
+                                                    CS.out.steeringTorque, self.ccp.TI_LIMITS)
 
     self.apply_torque_last = apply_torque
     self.ti_apply_torque_last = ti_apply_torque
@@ -63,7 +66,10 @@ class CarController(CarControllerBase):
           # Send Resume button when planner wants car to move
           can_sends.append(mazdacan.create_button_cmd(self.packer, self.CP, CS.crz_btns_counter, Buttons.RESUME))
 
-      # send HUD alerts
+      # send HUD alerts. This forwards the FSC camera's CAM_LANEINFO (0x440) back to the car;
+      # the panda relay drops the camera's own copy, so without this the dash loses LDW/auto-
+      # headlight features (constant "unavailable" warnings). Safe in NO_FSC now that carstate
+      # populates cam_laneinfo from the camera even when CAM_LKAS (0x243) is absent.
       if self.frame % 50 == 0:
         ldw = CC.hudControl.visualAlert == VisualAlert.ldw
         steer_required = CC.hudControl.visualAlert == VisualAlert.steerRequired
