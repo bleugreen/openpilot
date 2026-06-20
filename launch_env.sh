@@ -20,3 +20,5 @@ if [ -z "$AGNOS_VERSION" ]; then
 fi
 
 export STAGING_ROOT="/data/safe_staging"
+
+export FINGERPRINT="MAZDA_3"  # 2015 Mazda 3 gen3: force fingerprint (not a stock platform)
